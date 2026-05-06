@@ -37,8 +37,12 @@ enum Command {
     },
     /// Run as a background daemon
     Daemon,
-    /// Refresh all feeds
-    Refresh,
+    /// Refresh feeds (all, or a specific feed by ID)
+    Refresh {
+        /// Only refresh this feed ID
+        #[arg(long)]
+        feed_id: Option<i64>,
+    },
 }
 
 fn main() {
@@ -78,9 +82,9 @@ fn main() {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(daemon::run_daemon(conn));
         }
-        Command::Refresh => {
-            tracing::info!("refreshing feeds");
-            feed::refresh_feeds(&conn);
+        Command::Refresh { feed_id } => {
+            tracing::info!("refreshing feeds (feed_id: {feed_id:?})");
+            feed::refresh_feeds(&conn, *feed_id);
         }
     }
 }
