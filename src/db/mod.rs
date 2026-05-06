@@ -9,8 +9,9 @@ use rusqlite::{Connection, params};
 
 const MIGRATIONS: &[(&str, i32, &str)] = &[
     ("001_initial", 1, include_str!("migrations/001_initial.sql")),
-    ("002_unread_count_index", 2, include_str!("migrations/002_articles_unread_count_index.sql")),
-    ("003_extract_attempts", 3, include_str!("migrations/003_extract_attempts.sql")),
+    ("002_feed_cache", 2, include_str!("migrations/002_feed_cache.sql")),
+    ("003_unread_count_index", 3, include_str!("migrations/003_articles_unread_count_index.sql")),
+    ("004_extract_attempts", 4, include_str!("migrations/004_extract_attempts.sql")),
 ];
 
 pub fn get_db_path() -> PathBuf {
@@ -62,13 +63,17 @@ fn run_migrations(conn: &mut Connection) -> Result<()> {
 
     for (name, version, sql) in MIGRATIONS {
         if !applied.contains(version) {
-            conn.execute_batch(sql)
-                .with_context(|| format!("failed to run migration {name}"))?;
+            conn.execute_batch("BEGIN")?;
+            if let Err(e) = conn.execute_batch(sql) {
+                conn.execute_batch("ROLLBACK")?;
+                return Err(e).with_context(|| format!("failed to run migration {name}"));
+            }
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?1)",
                 params![version],
             )
             .with_context(|| format!("failed to record migration {name}"))?;
+            conn.execute_batch("COMMIT")?;
             tracing::info!("applied migration {name} (version {version})");
         }
     }
@@ -86,6 +91,6 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 3);
+        assert_eq!(count, 4);
     }
 }
