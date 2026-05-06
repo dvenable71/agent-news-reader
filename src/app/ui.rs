@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::components::{ArticlePane, FeedListPane, HeadlinePane};
-use crate::app::FocusPane;
+use crate::app::{FocusPane, InputMode};
 
 use super::App;
 
@@ -44,7 +44,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     HeadlinePane::render(
         frame,
         panes[1],
-        &app.articles,
+        &app.visible_articles,
         app.selected_article,
         app.focus == FocusPane::HeadlineList,
         app.feeds.get(app.selected_feed).map(|(f, _)| f.title.as_str()),
@@ -59,18 +59,49 @@ pub fn draw(frame: &mut Frame, app: &App) {
         app.focus == FocusPane::ArticleView,
     );
 
-    // Status bar (bottom) or error bar
-    let bottom = if let Some(ref err) = app.error {
-        Paragraph::new(Line::styled(
-            format!(" ERROR: {err} "),
-            Style::default().fg(Color::White).bg(Color::Red),
-        ))
-    } else {
-        let hints = " j/k nav · Tab cycle · Enter select · b bookmark · u/d scroll · q quit ";
-        Paragraph::new(Line::styled(
-            hints,
-            Style::default().fg(Color::White).bg(Color::Blue),
-        ))
+    // Bottom bar: error, prompt, hints
+    let bottom = match &app.input_mode {
+        InputMode::Normal => {
+            if let Some(ref err) = app.error {
+                Paragraph::new(Line::styled(
+                    format!(" {err} "),
+                    Style::default().fg(Color::White).bg(Color::Red),
+                ))
+            } else {
+                let hints = match app.focus {
+                    FocusPane::FeedList =>
+                        " j/k nav · Tab cycle · Enter select · a add · D delete · R refresh · q quit ",
+                    FocusPane::HeadlineList =>
+                        " j/k nav · Tab cycle · Enter view · r read · b bookmark · o open · / search · f filter ",
+                    FocusPane::ArticleView =>
+                        " u/d scroll · Tab cycle · r read · b bookmark · o open · q quit ",
+                };
+                Paragraph::new(Line::styled(
+                    hints,
+                    Style::default().fg(Color::White).bg(Color::Blue),
+                ))
+            }
+        }
+        InputMode::AddingFeed(buf) => {
+            let prompt = format!(" Add feed URL (Esc to cancel): {buf}");
+            Paragraph::new(Line::styled(
+                prompt,
+                Style::default().fg(Color::White).bg(Color::Green),
+            ))
+        }
+        InputMode::ConfirmDelete(_) => {
+            Paragraph::new(Line::styled(
+                " Delete feed? Press 'd' to confirm, 'c' or Esc to cancel ",
+                Style::default().fg(Color::White).bg(Color::Red),
+            ))
+        }
+        InputMode::Searching(buf) => {
+            let prompt = format!(" Search (Esc to cancel): {buf}");
+            Paragraph::new(Line::styled(
+                prompt,
+                Style::default().fg(Color::White).bg(Color::Green),
+            ))
+        }
     };
     frame.render_widget(bottom, layout[2]);
 }
@@ -83,15 +114,17 @@ fn render_status_bar(app: &App) -> Paragraph<'static> {
     };
 
     let feed_count = app.feeds.len();
-    let article_count = app.articles.len();
-    let unread = app
-        .articles
-        .iter()
-        .filter(|a| !a.is_read)
-        .count();
+    let article_count = app.visible_articles.len();
+    let total = app.articles.len();
+    let filter = app.filter_mode.label();
+    let search = if app.search_query.is_empty() {
+        String::new()
+    } else {
+        format!(" / \"{}\"", app.search_query)
+    };
 
     let bar = format!(
-        " NEWS  |  Mode: {mode}  |  Feeds: {feed_count}  |  Articles: {article_count} ({unread} new)  "
+        " NEWS  |  {mode}  |  Feeds: {feed_count}  |  {article_count}/{total} ({filter}{search})  "
     );
     Paragraph::new(Line::styled(bar, Style::default().fg(Color::White).bg(Color::Blue)))
 }
