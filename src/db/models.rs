@@ -8,6 +8,9 @@ pub struct Feed {
     pub url: String,
     pub site_url: Option<String>,
     pub description: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub last_fetch_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -15,7 +18,8 @@ pub struct Feed {
 impl Feed {
     pub fn list(conn: &Connection) -> Result<Vec<Feed>> {
         let mut stmt = conn.prepare(
-            "SELECT id, title, url, site_url, description, created_at, updated_at
+            "SELECT id, title, url, site_url, description, etag, last_modified,
+                    last_fetch_status, created_at, updated_at
              FROM feeds ORDER BY title",
         )?;
         let feeds = stmt
@@ -26,8 +30,11 @@ impl Feed {
                     url: row.get(2)?,
                     site_url: row.get(3)?,
                     description: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    etag: row.get(5)?,
+                    last_modified: row.get(6)?,
+                    last_fetch_status: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -36,7 +43,8 @@ impl Feed {
 
     pub fn get(conn: &Connection, id: i64) -> Result<Option<Feed>> {
         let mut stmt = conn.prepare(
-            "SELECT id, title, url, site_url, description, created_at, updated_at
+            "SELECT id, title, url, site_url, description, etag, last_modified,
+                    last_fetch_status, created_at, updated_at
              FROM feeds WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -46,8 +54,11 @@ impl Feed {
                 url: row.get(2)?,
                 site_url: row.get(3)?,
                 description: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                etag: row.get(5)?,
+                last_modified: row.get(6)?,
+                last_fetch_status: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?;
         match rows.next() {
@@ -76,6 +87,21 @@ impl Feed {
                 feed.description,
                 feed.id
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_cache_headers(
+        conn: &Connection,
+        id: i64,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<()> {
+        conn.execute(
+            "UPDATE feeds SET etag = ?, last_modified = ?, last_fetch_status = ?,
+             updated_at = datetime('now') WHERE id = ?",
+            params![etag, last_modified, status, id],
         )?;
         Ok(())
     }
@@ -232,6 +258,36 @@ impl Article {
     pub fn delete(conn: &Connection, id: i64) -> Result<()> {
         conn.execute("DELETE FROM articles WHERE id = ?", params![id])?;
         Ok(())
+    }
+
+    /// Upsert an article by GUID: insert if new, update title/summary/url/author/published_at if exists.
+    /// Returns the article ID (existing or newly created).
+    /// Note: last_insert_rowid() returns the matched row ID on DO UPDATE conflict
+    /// and the new row ID on insert — both work correctly for this usage.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_by_guid(
+        conn: &Connection,
+        feed_id: i64,
+        guid: &str,
+        title: &str,
+        url: Option<&str>,
+        summary: Option<&str>,
+        author: Option<&str>,
+        published_at: Option<&str>,
+    ) -> Result<i64> {
+        conn.execute(
+            "INSERT INTO articles (feed_id, guid, title, url, summary, author, published_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(guid) DO UPDATE SET
+                 feed_id       = excluded.feed_id,
+                 title         = excluded.title,
+                 url           = excluded.url,
+                 summary       = excluded.summary,
+                 author        = excluded.author,
+                 published_at  = excluded.published_at",
+            params![feed_id, guid, title, url, summary, author, published_at],
+        )?;
+        Ok(conn.last_insert_rowid())
     }
 }
 
