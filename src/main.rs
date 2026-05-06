@@ -58,9 +58,15 @@ fn main() {
 
     match &cli.command {
         Command::Tui => {
-            tracing::info!("starting TUI");
-            let _app = app::App::new(conn);
-            tracing::info!("TUI stub completed");
+            #[cfg(not(test))]
+            {
+                let app = app::App::new(conn);
+                app.run_tui();
+            }
+            #[cfg(test)]
+            {
+                drop(conn);
+            }
         }
         Command::Serve { port } => {
             tracing::info!("starting API server on port {port}");
