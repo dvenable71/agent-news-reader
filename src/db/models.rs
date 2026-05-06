@@ -159,6 +159,7 @@ pub struct Article {
     pub published_at: Option<String>,
     pub is_read: bool,
     pub is_bookmarked: bool,
+    pub extract_attempts: i64,
     pub created_at: String,
 }
 
@@ -168,7 +169,7 @@ impl Article {
             Some(fid) => {
                 let mut stmt = conn.prepare(
                     "SELECT id, feed_id, guid, title, url, summary, content, author,
-                            published_at, is_read, is_bookmarked, created_at
+                            published_at, is_read, is_bookmarked, extract_attempts, created_at
                      FROM articles WHERE feed_id = ? ORDER BY published_at DESC",
                 )?;
                 let articles = stmt
@@ -185,7 +186,8 @@ impl Article {
                             published_at: row.get(8)?,
                             is_read: row.get::<_, i32>(9)? != 0,
                             is_bookmarked: row.get::<_, i32>(10)? != 0,
-                            created_at: row.get(11)?,
+                            extract_attempts: row.get(11)?,
+                            created_at: row.get(12)?,
                         })
                     })?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -194,7 +196,7 @@ impl Article {
             None => {
                 let mut stmt = conn.prepare(
                     "SELECT id, feed_id, guid, title, url, summary, content, author,
-                            published_at, is_read, is_bookmarked, created_at
+                            published_at, is_read, is_bookmarked, extract_attempts, created_at
                      FROM articles ORDER BY published_at DESC",
                 )?;
                 let articles = stmt
@@ -211,7 +213,8 @@ impl Article {
                             published_at: row.get(8)?,
                             is_read: row.get::<_, i32>(9)? != 0,
                             is_bookmarked: row.get::<_, i32>(10)? != 0,
-                            created_at: row.get(11)?,
+                            extract_attempts: row.get(11)?,
+                            created_at: row.get(12)?,
                         })
                     })?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -223,7 +226,7 @@ impl Article {
     pub fn get(conn: &Connection, id: i64) -> Result<Option<Article>> {
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, guid, title, url, summary, content, author,
-                    published_at, is_read, is_bookmarked, created_at
+                    published_at, is_read, is_bookmarked, extract_attempts, created_at
              FROM articles WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -239,7 +242,8 @@ impl Article {
                 published_at: row.get(8)?,
                 is_read: row.get::<_, i32>(9)? != 0,
                 is_bookmarked: row.get::<_, i32>(10)? != 0,
-                created_at: row.get(11)?,
+                extract_attempts: row.get(11)?,
+                created_at: row.get(12)?,
             })
         })?;
         match rows.next() {
@@ -291,6 +295,58 @@ impl Article {
 
     pub fn delete(conn: &Connection, id: i64) -> Result<()> {
         conn.execute("DELETE FROM articles WHERE id = ?", params![id])?;
+        Ok(())
+    }
+
+    /// List articles without extracted content (NULL or empty), with &lt; 3 failed attempts.
+    pub fn list_without_content(conn: &Connection, limit: i64) -> Result<Vec<Article>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, feed_id, guid, title, url, summary, content, author,
+                    published_at, is_read, is_bookmarked, extract_attempts, created_at
+             FROM articles
+             WHERE (content IS NULL OR content = '')
+               AND url IS NOT NULL
+               AND extract_attempts < 3
+             ORDER BY published_at DESC
+             LIMIT ?",
+        )?;
+        let articles = stmt
+            .query_map(params![limit], |row| {
+                Ok(Article {
+                    id: row.get(0)?,
+                    feed_id: row.get(1)?,
+                    guid: row.get(2)?,
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    summary: row.get(5)?,
+                    content: row.get(6)?,
+                    author: row.get(7)?,
+                    published_at: row.get(8)?,
+                    is_read: row.get::<_, i32>(9)? != 0,
+                    is_bookmarked: row.get::<_, i32>(10)? != 0,
+                    extract_attempts: row.get(11)?,
+                    created_at: row.get(12)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(articles)
+    }
+
+    /// Increment extract_attempts for an article (on failure).
+    pub fn bump_extract_attempts(conn: &Connection, id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE articles SET extract_attempts = extract_attempts + 1 WHERE id = ?",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Reset extract_attempts to 0 (on successful extraction).
+    pub fn reset_extract_attempts(conn: &Connection, id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE articles SET extract_attempts = 0 WHERE id = ?",
+            params![id],
+        )?;
         Ok(())
     }
 
@@ -507,5 +563,54 @@ mod tests {
         Article::toggle_bookmark(&conn, article.id).unwrap();
         let fetched = Article::get(&conn, article.id).unwrap().unwrap();
         assert!(!fetched.is_bookmarked);
+    }
+
+    #[test]
+    fn test_list_without_content() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        // Article with no content
+        let a1 = Article::insert(
+            &conn, feed.id, "guid-1", "No Content", Some("https://example.com/1"),
+            None, None, None, None,
+        ).unwrap();
+        // Article with content already
+        Article::insert(
+            &conn, feed.id, "guid-2", "Has Content", Some("https://example.com/2"),
+            None, Some("existing content"), None, None,
+        ).unwrap();
+        // Article with 3 failed attempts should be excluded
+        let a3 = Article::insert(
+            &conn, feed.id, "guid-3", "Exhausted", Some("https://example.com/3"),
+            None, None, None, None,
+        ).unwrap();
+        conn.execute("UPDATE articles SET extract_attempts = 3 WHERE id = ?", params![a3.id]).unwrap();
+        // Article with no URL should be excluded
+        Article::insert(
+            &conn, feed.id, "guid-4", "No URL", None,
+            None, None, None, None,
+        ).unwrap();
+
+        let results = Article::list_without_content(&conn, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].guid, "guid-1");
+    }
+
+    #[test]
+    fn test_bump_and_reset_extract_attempts() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let article = Article::insert(
+            &conn, feed.id, "guid-1", "Test", None, None, None, None, None,
+        ).unwrap();
+        assert_eq!(article.extract_attempts, 0);
+
+        Article::bump_extract_attempts(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert_eq!(fetched.extract_attempts, 1);
+
+        Article::reset_extract_attempts(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert_eq!(fetched.extract_attempts, 0);
     }
 }

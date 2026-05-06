@@ -1,0 +1,1 @@
+ALTER TABLE articles ADD COLUMN extract_attempts INTEGER NOT NULL DEFAULT 0;

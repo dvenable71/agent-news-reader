@@ -259,9 +259,16 @@ impl App {
 
     fn cache_article_content(&mut self) {
         let content = self.selected_article_ref().and_then(|a| {
-            a.content.as_deref()
-                .or(a.summary.as_deref())
-                .map(strip_html)
+            // If content was extracted (has extract_attempts > 0 or non-empty content),
+            // use it directly — it's already formatted plain text.
+            // Otherwise, strip HTML from the RSS summary.
+            let has_extracted = a.extract_attempts > 0
+                || a.content.as_deref().is_some_and(|c| !c.is_empty());
+            if has_extracted {
+                a.content.as_deref().map(|s| s.to_string())
+            } else {
+                a.summary.as_deref().map(strip_html)
+            }
         });
         self.stripped_content = content;
     }
