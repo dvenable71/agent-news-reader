@@ -84,6 +84,37 @@ impl Feed {
         conn.execute("DELETE FROM feeds WHERE id = ?", params![id])?;
         Ok(())
     }
+
+    /// List all feeds with their unread article counts.
+    /// Uses a LEFT JOIN so feeds with zero articles are included.
+    pub fn list_with_unread_count(conn: &Connection) -> Result<Vec<(Feed, i64)>> {
+        let mut stmt = conn.prepare(
+            "SELECT f.id, f.title, f.url, f.site_url, f.description,
+                    f.created_at, f.updated_at,
+                    COUNT(CASE WHEN a.is_read = 0 THEN 1 END) AS unread
+             FROM feeds f
+             LEFT JOIN articles a ON a.feed_id = f.id
+             GROUP BY f.id
+             ORDER BY f.title",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    Feed {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        url: row.get(2)?,
+                        site_url: row.get(3)?,
+                        description: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    },
+                    row.get::<_, i64>(7)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +264,24 @@ impl Article {
         conn.execute("DELETE FROM articles WHERE id = ?", params![id])?;
         Ok(())
     }
+
+    /// Mark an article as read.
+    pub fn mark_read(conn: &Connection, id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE articles SET is_read = 1 WHERE id = ?",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Toggle the bookmark state of an article.
+    pub fn toggle_bookmark(conn: &Connection, id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE articles SET is_bookmarked = CASE WHEN is_bookmarked = 0 THEN 1 ELSE 0 END WHERE id = ?",
+            params![id],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -347,5 +396,57 @@ mod tests {
         let fetched = Article::get(&conn, article.id).unwrap().unwrap();
         assert!(fetched.is_read);
         assert!(fetched.is_bookmarked);
+    }
+
+    #[test]
+    fn test_list_with_unread_count() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        // Feed with zero articles appears with unread_count = 0
+        let results = Feed::list_with_unread_count(&conn).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, 0);
+
+        // Add unread article
+        Article::insert(
+            &conn, feed.id, "guid-1", "Unread", None, None, None, None, None,
+        )
+        .unwrap();
+        let results = Feed::list_with_unread_count(&conn).unwrap();
+        assert_eq!(results[0].1, 1);
+    }
+
+    #[test]
+    fn test_mark_read() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let article = Article::insert(
+            &conn, feed.id, "guid-1", "Test", None, None, None, None, None,
+        )
+        .unwrap();
+        assert!(!article.is_read);
+
+        Article::mark_read(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert!(fetched.is_read);
+    }
+
+    #[test]
+    fn test_toggle_bookmark() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let article = Article::insert(
+            &conn, feed.id, "guid-1", "Test", None, None, None, None, None,
+        )
+        .unwrap();
+        assert!(!article.is_bookmarked);
+
+        Article::toggle_bookmark(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert!(fetched.is_bookmarked);
+
+        Article::toggle_bookmark(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert!(!fetched.is_bookmarked);
     }
 }
