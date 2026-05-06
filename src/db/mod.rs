@@ -10,6 +10,7 @@ use rusqlite::{Connection, params};
 const MIGRATIONS: &[(&str, i32, &str)] = &[
     ("001_initial", 1, include_str!("migrations/001_initial.sql")),
     ("002_unread_count_index", 2, include_str!("migrations/002_articles_unread_count_index.sql")),
+    ("003_extract_attempts", 3, include_str!("migrations/003_extract_attempts.sql")),
 ];
 
 pub fn get_db_path() -> PathBuf {
@@ -85,6 +86,6 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 3);
     }
 }

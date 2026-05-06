@@ -39,6 +39,15 @@ enum Command {
     Daemon,
     /// Refresh all feeds
     Refresh,
+    /// Extract article content from URLs
+    Extract {
+        /// Only extract articles from this feed
+        #[arg(long)]
+        feed_id: Option<i64>,
+        /// Maximum articles to extract (default 50)
+        #[arg(long, default_value = "50")]
+        limit: i64,
+    },
 }
 
 fn main() {
@@ -81,6 +90,13 @@ fn main() {
         Command::Refresh => {
             tracing::info!("refreshing feeds");
             feed::refresh_feeds(&conn);
+        }
+        Command::Extract { feed_id, limit } => {
+            tracing::info!(?feed_id, limit, "extracting article content");
+            match feed::extract_all(&conn, *feed_id, *limit) {
+                Ok(count) => tracing::info!("extracted content for {count} articles"),
+                Err(e) => tracing::error!("extraction failed: {e}"),
+            }
         }
     }
 }
