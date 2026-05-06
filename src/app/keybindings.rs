@@ -10,6 +10,14 @@ pub enum Action {
     ScrollUp,
     ScrollDown,
     ToggleBookmark,
+    ToggleRead,
+    AddFeed,
+    DeleteFeed,
+    OpenInBrowser,
+    Search,
+    Escape,
+    Refresh,
+    CycleFilter,
     None,
 }
 
@@ -47,6 +55,30 @@ pub fn dispatch(event: &Event) -> Action {
             code: KeyCode::Char('b'), ..
         }) => Action::ToggleBookmark,
         Event::Key(KeyEvent {
+            code: KeyCode::Char('r'), ..
+        }) => Action::ToggleRead,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('a'), ..
+        }) => Action::AddFeed,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('D'), ..
+        }) => Action::DeleteFeed,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('o'), ..
+        }) => Action::OpenInBrowser,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('/'), ..
+        }) => Action::Search,
+        Event::Key(KeyEvent {
+            code: KeyCode::Esc, ..
+        }) => Action::Escape,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('R'), ..
+        }) => Action::Refresh,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('f'), ..
+        }) => Action::CycleFilter,
+        Event::Key(KeyEvent {
             code: KeyCode::Char('c'),
             modifiers: KeyModifiers::CONTROL,
             ..
@@ -62,57 +94,81 @@ mod tests {
 
     #[test]
     fn test_dispatch_quit() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::Quit);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))), Action::Quit);
     }
 
     #[test]
     fn test_dispatch_ctrl_c() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
-        assert_eq!(dispatch(&e), Action::Quit);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL))), Action::Quit);
     }
 
     #[test]
     fn test_dispatch_tab() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::CyclePane);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))), Action::CyclePane);
     }
 
     #[test]
     fn test_dispatch_j() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::Down);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE))), Action::Down);
     }
 
     #[test]
     fn test_dispatch_k() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::Up);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE))), Action::Up);
     }
 
     #[test]
     fn test_dispatch_enter() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::Select);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))), Action::Select);
     }
 
     #[test]
     fn test_dispatch_toggle_bookmark() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::ToggleBookmark);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE))), Action::ToggleBookmark);
     }
 
     #[test]
-    fn test_dispatch_scroll() {
-        let u = Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
-        let d = Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&u), Action::ScrollUp);
-        assert_eq!(dispatch(&d), Action::ScrollDown);
+    fn test_dispatch_toggle_read() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE))), Action::ToggleRead);
+    }
+
+    #[test]
+    fn test_dispatch_add_feed() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))), Action::AddFeed);
+    }
+
+    #[test]
+    fn test_dispatch_delete_feed() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('D'), KeyModifiers::NONE))), Action::DeleteFeed);
+    }
+
+    #[test]
+    fn test_dispatch_open_in_browser() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE))), Action::OpenInBrowser);
+    }
+
+    #[test]
+    fn test_dispatch_search() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE))), Action::Search);
+    }
+
+    #[test]
+    fn test_dispatch_escape() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))), Action::Escape);
+    }
+
+    #[test]
+    fn test_dispatch_refresh() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE))), Action::Refresh);
+    }
+
+    #[test]
+    fn test_dispatch_cycle_filter() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE))), Action::CycleFilter);
     }
 
     #[test]
     fn test_dispatch_unknown() {
-        let e = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-        assert_eq!(dispatch(&e), Action::None);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE))), Action::None);
     }
 }

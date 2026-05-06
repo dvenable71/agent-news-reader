@@ -389,6 +389,73 @@ impl Article {
         Ok(())
     }
 
+    /// Toggle the read/unread state of an article.
+    pub fn toggle_read(conn: &Connection, id: i64) -> Result<()> {
+        conn.execute(
+            "UPDATE articles SET is_read = CASE WHEN is_read = 0 THEN 1 ELSE 0 END WHERE id = ?",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// List articles with optional filters. Filter: "unread", "bookmarked", or "" for all.
+    pub fn list_filtered(conn: &Connection, feed_id: Option<i64>, filter: &str) -> Result<Vec<Article>> {
+        let (where_clause, filter_params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = {
+            let mut clauses = Vec::new();
+            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(fid) = feed_id {
+                clauses.push(format!("feed_id = ?{}", params.len() + 1));
+                params.push(Box::new(fid));
+            }
+            match filter {
+                "unread" => {
+                    clauses.push("is_read = 0".to_string());
+                }
+                "bookmarked" => {
+                    clauses.push("is_bookmarked = 1".to_string());
+                }
+                _ => {}
+            }
+
+            let where_str = if clauses.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", clauses.join(" AND "))
+            };
+            (where_str, params)
+        };
+
+        let sql = format!(
+            "SELECT id, feed_id, guid, title, url, summary, content, author,
+                    published_at, is_read, is_bookmarked, extract_attempts, created_at
+             FROM articles {where_clause} ORDER BY published_at DESC"
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|p| p.as_ref()).collect();
+        let articles = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(Article {
+                    id: row.get(0)?,
+                    feed_id: row.get(1)?,
+                    guid: row.get(2)?,
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    summary: row.get(5)?,
+                    content: row.get(6)?,
+                    author: row.get(7)?,
+                    published_at: row.get(8)?,
+                    is_read: row.get::<_, i32>(9)? != 0,
+                    is_bookmarked: row.get::<_, i32>(10)? != 0,
+                    extract_attempts: row.get(11)?,
+                    created_at: row.get(12)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(articles)
+    }
+
     /// Toggle the bookmark state of an article.
     pub fn toggle_bookmark(conn: &Connection, id: i64) -> Result<()> {
         conn.execute(
@@ -563,6 +630,58 @@ mod tests {
         Article::toggle_bookmark(&conn, article.id).unwrap();
         let fetched = Article::get(&conn, article.id).unwrap().unwrap();
         assert!(!fetched.is_bookmarked);
+    }
+
+    #[test]
+    fn test_toggle_read() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let article = Article::insert(
+            &conn, feed.id, "guid-1", "Test", None, None, None, None, None,
+        ).unwrap();
+        assert!(!article.is_read);
+
+        Article::toggle_read(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert!(fetched.is_read);
+
+        Article::toggle_read(&conn, article.id).unwrap();
+        let fetched = Article::get(&conn, article.id).unwrap().unwrap();
+        assert!(!fetched.is_read);
+    }
+
+    #[test]
+    fn test_list_filtered_unread() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let a1 = Article::insert(
+            &conn, feed.id, "guid-1", "Unread", None, None, None, None, None,
+        ).unwrap();
+        let _a2 = Article::insert(
+            &conn, feed.id, "guid-2", "Read", None, None, None, None, None,
+        ).unwrap();
+        Article::mark_read(&conn, a1.id).unwrap();
+
+        let unread = Article::list_filtered(&conn, Some(feed.id), "unread").unwrap();
+        assert_eq!(unread.len(), 1); // a2 was never marked read
+        assert_eq!(unread[0].guid, "guid-2");
+    }
+
+    #[test]
+    fn test_list_filtered_bookmarked() {
+        let conn = test_conn();
+        let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
+        let a1 = Article::insert(
+            &conn, feed.id, "guid-1", "Bookmarked", None, None, None, None, None,
+        ).unwrap();
+        Article::toggle_bookmark(&conn, a1.id).unwrap();
+
+        let bookmarked = Article::list_filtered(&conn, Some(feed.id), "bookmarked").unwrap();
+        assert_eq!(bookmarked.len(), 1);
+        assert_eq!(bookmarked[0].guid, "guid-1");
+
+        let all = Article::list_filtered(&conn, Some(feed.id), "").unwrap();
+        assert_eq!(all.len(), 1);
     }
 
     #[test]

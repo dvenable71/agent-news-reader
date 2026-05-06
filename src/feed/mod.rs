@@ -590,7 +590,7 @@ pub fn extract_all(conn: &Connection, feed_id: Option<i64>, limit: i64) -> Resul
     let articles = if let Some(fid) = feed_id {
         Article::list(conn, Some(fid))?
             .into_iter()
-            .filter(|a| a.content.as_deref().map_or(true, |c| c.is_empty()))
+            .filter(|a| a.content.as_deref().is_none_or(|c| c.is_empty()))
             .filter(|a| a.extract_attempts < 3)
             .take(limit as usize)
             .collect::<Vec<_>>()

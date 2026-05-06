@@ -105,14 +105,13 @@ pub fn extract_content(url: &str) -> Result<String> {
     let response = client.get(url).send().context("network error")?;
 
     // Check Content-Type
-    if let Some(ct) = response.headers().get("content-type") {
-        if let Ok(val) = ct.to_str() {
+    if let Some(ct) = response.headers().get("content-type")
+        && let Ok(val) = ct.to_str() {
             let lower = val.to_lowercase();
             if !lower.starts_with("text/html") && !lower.starts_with("text/plain") {
                 anyhow::bail!("invalid content");
             }
         }
-    }
 
     let status = response.status();
     if !status.is_success() {
@@ -131,15 +130,12 @@ pub fn extract_content(url: &str) -> Result<String> {
         .to_string();
 
     // Check Content-Length header
-    if let Some(cl) = response.headers().get("content-length") {
-        if let Ok(s) = cl.to_str() {
-            if let Ok(len) = s.parse::<u64>() {
-                if len > MAX_RESPONSE_SIZE {
+    if let Some(cl) = response.headers().get("content-length")
+        && let Ok(s) = cl.to_str()
+            && let Ok(len) = s.parse::<u64>()
+                && len > MAX_RESPONSE_SIZE {
                     anyhow::bail!("invalid content");
                 }
-            }
-        }
-    }
 
     let mut body = Vec::new();
     let mut reader = response.take(MAX_RESPONSE_SIZE + 1);
@@ -200,7 +196,7 @@ fn extract_readable(html: &str, _content_type: &str) -> Result<String> {
                             // Filter out likely junk divs
                             let id = d.value().id();
                             let mut classes = d.value().classes();
-                            !id.map_or(false, |id| {
+                            !id.is_some_and(|id| {
                                 id.contains("nav")
                                     || id.contains("sidebar")
                                     || id.contains("footer")
@@ -335,11 +331,10 @@ fn format_inline(element: scraper::ElementRef) -> String {
             }
             "br" | "wbr" => text.push(' '),
             "img" => {
-                if let Some(alt) = el.value().attr("alt") {
-                    if !alt.is_empty() {
+                if let Some(alt) = el.value().attr("alt")
+                    && !alt.is_empty() {
                         text.push_str(&format!("[Image: {alt}] "));
                     }
-                }
             }
             "strong" | "b" | "em" | "i" | "code" | "tt" => {
                 text.push_str(&el.text().collect::<String>());
