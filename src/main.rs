@@ -36,7 +36,11 @@ enum Command {
         port: u16,
     },
     /// Run as a background daemon
-    Daemon,
+    Daemon {
+        /// Poll interval in minutes (default: 15)
+        #[arg(long, default_value = "15")]
+        interval_minutes: u64,
+    },
     /// Refresh feeds (all, or a specific feed by ID)
     Refresh {
         /// Only refresh this feed ID
@@ -86,10 +90,13 @@ fn main() {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(api::serve_api(conn, *port));
         }
-        Command::Daemon => {
-            tracing::info!("starting daemon");
+        Command::Daemon { interval_minutes } => {
+            let interval = std::time::Duration::from_secs((*interval_minutes).max(5) * 60);
+            tracing::info!(?interval_minutes, "starting daemon");
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-            rt.block_on(daemon::run_daemon(conn));
+            if let Err(e) = rt.block_on(daemon::run_daemon(db_path.clone(), interval)) {
+                tracing::error!("daemon exited with error: {e}");
+            }
         }
         Command::Refresh { feed_id } => {
             tracing::info!("refreshing feeds (feed_id: {feed_id:?})");

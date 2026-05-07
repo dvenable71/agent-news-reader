@@ -121,6 +121,8 @@ pub struct App {
     pub search_query: String,
     refresh_running: Arc<AtomicBool>,
     refresh_done: Arc<AtomicBool>,
+    pub daemon_running: Arc<AtomicBool>,
+    daemon_stop: Arc<AtomicBool>,
 }
 
 impl App {
@@ -141,6 +143,8 @@ impl App {
             search_query: String::new(),
             refresh_running: Arc::new(AtomicBool::new(false)),
             refresh_done: Arc::new(AtomicBool::new(false)),
+            daemon_running: Arc::new(AtomicBool::new(false)),
+            daemon_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -256,6 +260,7 @@ impl App {
                     self.filter_mode = self.filter_mode.next();
                     self.reload_articles();
                 }
+                Action::ToggleDaemon => self.toggle_daemon(),
                 Action::None => {}
             }
         }
@@ -432,6 +437,50 @@ impl App {
                 done.store(true, Ordering::Release);
             });
             self.error = Some("Refreshing...".into());
+        }
+    }
+
+    fn toggle_daemon(&mut self) {
+        let is_running = self.daemon_running.load(Ordering::Acquire);
+        if is_running {
+            // Stop the daemon
+            self.daemon_stop.store(true, Ordering::Release);
+            self.daemon_running.store(false, Ordering::Release);
+            self.error = Some("Daemon stopped".into());
+        } else {
+            // Start the daemon
+            self.daemon_stop.store(false, Ordering::Release);
+            self.daemon_running.store(true, Ordering::Release);
+            let running = self.daemon_running.clone();
+            let stop = self.daemon_stop.clone();
+            let db_path = crate::db::get_db_path().to_string_lossy().to_string();
+
+            std::thread::spawn(move || {
+                running.store(true, Ordering::Release);
+                let interval = std::time::Duration::from_secs(15 * 60); // 15 minutes
+
+                while !stop.load(Ordering::Acquire) {
+                    // Open own DB connection
+                    match crate::db::init_db(&db_path) {
+                        Ok(conn) => {
+                            crate::feed::refresh_feeds(&conn, None);
+                            let _ = conn.close();
+                        }
+                        Err(e) => {
+                            tracing::error!("daemon: failed to open DB: {e}");
+                        }
+                    }
+                    // Sleep in 1-second increments so we can respond quickly to stop signal
+                    for _ in 0..interval.as_secs() {
+                        if stop.load(Ordering::Acquire) {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                }
+                running.store(false, Ordering::Release);
+            });
+            self.error = Some("Daemon started".into());
         }
     }
 
