@@ -32,7 +32,7 @@ enum Command {
     /// Start the HTTP API server
     Serve {
         /// Port to listen on
-        #[arg(long, env = "API_PORT", default_value = "3000")]
+        #[arg(long, env = "API_PORT", default_value = "9876")]
         port: u16,
     },
     /// Run as a background daemon

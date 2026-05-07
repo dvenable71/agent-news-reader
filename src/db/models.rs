@@ -399,7 +399,15 @@ impl Article {
     }
 
     /// List articles with optional filters. Filter: "unread", "bookmarked", or "" for all.
-    pub fn list_filtered(conn: &Connection, feed_id: Option<i64>, filter: &str) -> Result<Vec<Article>> {
+    /// `since`: ISO 8601 date string — only articles published at or after this date.
+    /// `limit`: maximum articles to return (capped at 500 internally).
+    pub fn list_filtered(
+        conn: &Connection,
+        feed_id: Option<i64>,
+        filter: &str,
+        since: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<Article>> {
         let (where_clause, filter_params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = {
             let mut clauses = Vec::new();
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -417,6 +425,10 @@ impl Article {
                 }
                 _ => {}
             }
+            if let Some(s) = since {
+                clauses.push(format!("published_at >= ?{}", params.len() + 1));
+                params.push(Box::new(s.to_string()));
+            }
 
             let where_str = if clauses.is_empty() {
                 String::new()
@@ -426,10 +438,15 @@ impl Article {
             (where_str, params)
         };
 
+        let limit_clause = match limit {
+            Some(n) => format!(" LIMIT {}", n.clamp(1, 500)),
+            None => String::new(),
+        };
+
         let sql = format!(
             "SELECT id, feed_id, guid, title, url, summary, content, author,
                     published_at, is_read, is_bookmarked, extract_attempts, created_at
-             FROM articles {where_clause} ORDER BY published_at DESC"
+             FROM articles {where_clause} ORDER BY published_at DESC{limit_clause}"
         );
 
         let mut stmt = conn.prepare(&sql)?;
@@ -662,7 +679,7 @@ mod tests {
         ).unwrap();
         Article::mark_read(&conn, a1.id).unwrap();
 
-        let unread = Article::list_filtered(&conn, Some(feed.id), "unread").unwrap();
+        let unread = Article::list_filtered(&conn, Some(feed.id), "unread", None, None).unwrap();
         assert_eq!(unread.len(), 1); // a2 was never marked read
         assert_eq!(unread[0].guid, "guid-2");
     }
@@ -676,11 +693,11 @@ mod tests {
         ).unwrap();
         Article::toggle_bookmark(&conn, a1.id).unwrap();
 
-        let bookmarked = Article::list_filtered(&conn, Some(feed.id), "bookmarked").unwrap();
+        let bookmarked = Article::list_filtered(&conn, Some(feed.id), "bookmarked", None, None).unwrap();
         assert_eq!(bookmarked.len(), 1);
         assert_eq!(bookmarked[0].guid, "guid-1");
 
-        let all = Article::list_filtered(&conn, Some(feed.id), "").unwrap();
+        let all = Article::list_filtered(&conn, Some(feed.id), "", None, None).unwrap();
         assert_eq!(all.len(), 1);
     }
 

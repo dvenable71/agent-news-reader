@@ -501,7 +501,7 @@ impl App {
 
     fn reload_articles(&mut self) {
         let feed_id = self.feeds.get(self.selected_feed).map(|(f, _)| f.id);
-        self.articles = match Article::list_filtered(&self.conn, feed_id, self.filter_mode.as_str()) {
+        self.articles = match Article::list_filtered(&self.conn, feed_id, self.filter_mode.as_str(), None, None) {
             Ok(a) => a,
             Err(e) => {
                 self.error = Some("Failed to load articles".into());
