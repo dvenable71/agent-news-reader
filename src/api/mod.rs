@@ -89,12 +89,15 @@ impl IntoResponse for AppError {
 }
 
 /// Resolve a map of feed_id → feed_title from the database.
+/// Returns an empty map on error (already logged via tracing).
 fn load_feed_titles(conn: &Connection) -> HashMap<i64, String> {
-    crate::db::models::Feed::list(conn)
-        .ok()
-        .into_iter()
-        .flat_map(|feeds| feeds.into_iter().map(|f| (f.id, f.title)))
-        .collect()
+    match crate::db::models::Feed::list(conn) {
+        Ok(feeds) => feeds.into_iter().map(|f| (f.id, f.title)).collect(),
+        Err(e) => {
+            tracing::error!("failed to load feed titles: {e}");
+            HashMap::new()
+        }
+    }
 }
 
 async fn health() -> &'static str {
@@ -104,7 +107,7 @@ async fn health() -> &'static str {
 async fn list_feeds(State(state): State<Arc<AppState>>) -> Result<axum::Json<Vec<FeedResponse>>, AppError> {
     let state = Arc::clone(&state);
     let result = spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| format!("{e}"))?;
+        let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
         crate::db::models::Feed::list_with_unread_count(&conn).map_err(|e| format!("{e}"))
     })
     .await
@@ -154,7 +157,7 @@ async fn list_articles(
     let is_summary = params.format.as_deref() == Some("summary");
 
     let result = spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| format!("{e}"))?;
+        let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let articles = crate::db::models::Article::list_filtered(&conn, feed_id, filter, since.as_deref(), limit)
             .map_err(|e| format!("{e}"))?;
 
@@ -215,7 +218,7 @@ async fn get_article(
 ) -> Result<axum::Json<ArticleResponse>, AppError> {
     let state = Arc::clone(&state);
     let result = spawn_blocking(move || {
-        let conn = state.db.lock().map_err(|e| format!("{e}"))?;
+        let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
         let article = crate::db::models::Article::get(&conn, id)
             .map_err(|e| format!("{e}"))?
             .ok_or_else(|| "not found".to_string())?;
