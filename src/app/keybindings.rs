@@ -18,6 +18,7 @@ pub enum Action {
     Escape,
     Refresh,
     CycleFilter,
+    ToggleDaemon,
     None,
 }
 
@@ -78,6 +79,9 @@ pub fn dispatch(event: &Event) -> Action {
         Event::Key(KeyEvent {
             code: KeyCode::Char('f'), ..
         }) => Action::CycleFilter,
+        Event::Key(KeyEvent {
+            code: KeyCode::Char('m'), ..
+        }) => Action::ToggleDaemon,
         Event::Key(KeyEvent {
             code: KeyCode::Char('c'),
             modifiers: KeyModifiers::CONTROL,
@@ -165,6 +169,17 @@ mod tests {
     #[test]
     fn test_dispatch_cycle_filter() {
         assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE))), Action::CycleFilter);
+    }
+
+    #[test]
+    fn test_dispatch_scroll() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE))), Action::ScrollUp);
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE))), Action::ScrollDown);
+    }
+
+    #[test]
+    fn test_dispatch_toggle_daemon() {
+        assert_eq!(dispatch(&Event::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE))), Action::ToggleDaemon);
     }
 
     #[test]

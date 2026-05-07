@@ -689,7 +689,7 @@ mod tests {
         let conn = test_conn();
         let feed = Feed::insert(&conn, "Test", "https://example.com/feed").unwrap();
         // Article with no content
-        let a1 = Article::insert(
+        let _a1 = Article::insert(
             &conn, feed.id, "guid-1", "No Content", Some("https://example.com/1"),
             None, None, None, None,
         ).unwrap();

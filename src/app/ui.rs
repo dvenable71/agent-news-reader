@@ -70,7 +70,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } else {
                 let hints = match app.focus {
                     FocusPane::FeedList =>
-                        " j/k nav · Tab cycle · Enter select · a add · D delete · R refresh · q quit ",
+                        " j/k nav · Tab cycle · Enter select · a add · D delete · m daemon · R refresh · q quit ",
                     FocusPane::HeadlineList =>
                         " j/k nav · Tab cycle · Enter view · r read · b bookmark · o open · / search · f filter ",
                     FocusPane::ArticleView =>
@@ -123,8 +123,14 @@ fn render_status_bar(app: &App) -> Paragraph<'static> {
         format!(" / \"{}\"", app.search_query)
     };
 
+    let daemon_status = if app.daemon_running.load(std::sync::atomic::Ordering::Relaxed) {
+        " [DAEMON]"
+    } else {
+        ""
+    };
+
     let bar = format!(
-        " NEWS  |  {mode}  |  Feeds: {feed_count}  |  {article_count}/{total} ({filter}{search})  "
+        " NEWS{daemon_status}  |  {mode}  |  Feeds: {feed_count}  |  {article_count}/{total} ({filter}{search})  "
     );
     Paragraph::new(Line::styled(bar, Style::default().fg(Color::White).bg(Color::Blue)))
 }
