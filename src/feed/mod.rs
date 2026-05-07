@@ -161,6 +161,16 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
             anyhow::anyhow!("invalid feed URL: {}", feed.url)
         })?;
 
+    refresh_feed_impl(conn, client, feed, &mut result)
+}
+
+/// The implementation after URL validation, extracted for direct test access.
+fn refresh_feed_impl(
+    conn: &Connection,
+    client: &reqwest::blocking::Client,
+    feed: &Feed,
+    result: &mut RefreshResult,
+) -> Result<RefreshResult> {
     // Build request with conditional headers
     let mut req = client.get(&feed.url);
     if let Some(etag) = &feed.etag {
@@ -175,7 +185,7 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
         Err(e) => {
             result.error = Some(format!("HTTP error: {e}"));
             Feed::update_cache_headers(conn, feed.id, None, None, Some("network_error")).ok();
-            return Ok(result);
+            return Ok(result.clone());
         }
     };
 
@@ -186,14 +196,14 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
         tracing::info!(feed_id = feed.id, "feed returned 304 Not Modified");
         Feed::update_cache_headers(conn, feed.id, None, None, Some("304_not_modified")).ok();
         result.cached = true;
-        return Ok(result);
+        return Ok(result.clone());
     }
 
     if !status.is_success() {
         let err = format!("HTTP {status}");
         result.error = Some(err.clone());
         Feed::update_cache_headers(conn, feed.id, None, None, Some("http_error")).ok();
-        return Ok(result);
+        return Ok(result.clone());
     }
 
     // Extract headers before consuming the body (bytes() takes ownership)
@@ -214,14 +224,14 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
             if b.len() as u64 > MAX_RESPONSE_SIZE {
                 result.error = Some("response too large".to_string());
                 Feed::update_cache_headers(conn, feed.id, None, None, Some("too_large")).ok();
-                return Ok(result);
+                return Ok(result.clone());
             }
             b
         }
         Err(e) => {
             result.error = Some(format!("read error: {e}"));
             Feed::update_cache_headers(conn, feed.id, None, None, Some("read_error")).ok();
-            return Ok(result);
+            return Ok(result.clone());
         }
     };
 
@@ -231,7 +241,7 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
         Err(e) => {
             result.error = Some(format!("parse error: {e}"));
             Feed::update_cache_headers(conn, feed.id, None, None, Some("parse_error")).ok();
-            return Ok(result);
+            return Ok(result.clone());
         }
     };
 
@@ -310,7 +320,7 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
         }
         result.error = Some(format!("DB transaction failed: {tx_err}"));
         Feed::update_cache_headers(conn, feed.id, None, None, Some("db_error")).ok();
-        return Ok(result);
+        return Ok(result.clone());
     }
 
     conn.execute_batch("COMMIT")?;
@@ -321,7 +331,7 @@ pub fn refresh_feed(conn: &Connection, client: &reqwest::blocking::Client, feed:
         "feed refreshed successfully"
     );
 
-    Ok(result)
+    Ok(result.clone())
 }
 
 /// Refresh a single feed by ID, or all feeds if None.
@@ -397,7 +407,7 @@ pub fn refresh_feeds(conn: &Connection, feed_id: Option<i64>) {
 }
 
 /// Result of refreshing a single feed.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RefreshResult {
     pub feed_id: i64,
     pub feed_title: String,
