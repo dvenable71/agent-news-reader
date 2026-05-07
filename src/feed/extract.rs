@@ -321,9 +321,7 @@ fn format_inline(element: scraper::ElementRef) -> String {
             "a" => {
                 let link_text: String = el.text().collect();
                 let href = el.value().attr("href").unwrap_or("");
-                if href.is_empty() || href.starts_with('#') {
-                    text.push_str(&link_text);
-                } else if link_text.trim() == href.trim() {
+                if href.is_empty() || href.starts_with('#') || link_text.trim() == href.trim() {
                     text.push_str(&link_text);
                 } else {
                     text.push_str(&format!("{} ({})", link_text.trim(), href.trim()));

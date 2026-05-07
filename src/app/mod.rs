@@ -21,6 +21,7 @@ use ratatui::Terminal;
 
 use rusqlite::Connection;
 
+#[cfg(not(test))]
 use crate::app::keybindings::{Action, dispatch};
 use crate::db::models::{Article, Feed};
 
@@ -441,42 +442,42 @@ impl App {
     }
 
     fn toggle_daemon(&mut self) {
-        let is_running = self.daemon_running.load(Ordering::Acquire);
-        if is_running {
-            // Stop the daemon
-            self.daemon_stop.store(true, Ordering::Release);
+        // Use compare_exchange to prevent races: only start if not running
+        let was_running = self.daemon_running.swap(true, Ordering::AcqRel);
+        if was_running {
             self.daemon_running.store(false, Ordering::Release);
+            self.daemon_stop.store(true, Ordering::Release);
             self.error = Some("Daemon stopped".into());
         } else {
-            // Start the daemon
             self.daemon_stop.store(false, Ordering::Release);
-            self.daemon_running.store(true, Ordering::Release);
             let running = self.daemon_running.clone();
             let stop = self.daemon_stop.clone();
             let db_path = crate::db::get_db_path().to_string_lossy().to_string();
 
             std::thread::spawn(move || {
-                running.store(true, Ordering::Release);
-                let interval = std::time::Duration::from_secs(15 * 60); // 15 minutes
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let interval = std::time::Duration::from_secs(15 * 60);
 
-                while !stop.load(Ordering::Acquire) {
-                    // Open own DB connection
-                    match crate::db::init_db(&db_path) {
-                        Ok(conn) => {
-                            crate::feed::refresh_feeds(&conn, None);
-                            let _ = conn.close();
+                    while !stop.load(Ordering::Acquire) {
+                        match crate::db::init_db(&db_path) {
+                            Ok(conn) => {
+                                crate::feed::refresh_feeds(&conn, None);
+                                let _ = conn.close();
+                            }
+                            Err(e) => {
+                                tracing::error!("daemon: failed to open DB: {e}");
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("daemon: failed to open DB: {e}");
+                        for _ in 0..interval.as_secs() {
+                            if stop.load(Ordering::Acquire) {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_secs(1));
                         }
                     }
-                    // Sleep in 1-second increments so we can respond quickly to stop signal
-                    for _ in 0..interval.as_secs() {
-                        if stop.load(Ordering::Acquire) {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                    }
+                }));
+                if result.is_err() {
+                    tracing::error!("daemon thread panicked");
                 }
                 running.store(false, Ordering::Release);
             });
